@@ -4,6 +4,14 @@
  * @category  Imagefly
  * @author    Fady Khalife
  * @uses      Image Module
+ *
+ * Concept based on the smart-lencioni-image-resizer by Joe Lencioni
+ * http://code.google.com/p/smart-lencioni-image-resizer/
+ *
+ * digi3studio.com
+ * add -p parameter for portrait crop. 
+ * when cropping image from portrait to landscape. Head of the photo usually cropped.
+ * by adjust the crop position from center (1/2) to 1/4 of the image will be prevent such problem.
  */
  
 class ImageFly
@@ -15,7 +23,7 @@ class ImageFly
     
     /**
      * @var  string      Stores the path to the cache directory which is either whats set in the config "cache_dir"
-     *                   or processed sub directories when the "mimic_source_dir" config option id set to TRUE
+     *                   or processed sub directories when the "mimic_sourcestructure" config option id set to TRUE
      */
     protected $cache_dir = NULL;
     
@@ -39,7 +47,6 @@ class ImageFly
      *                   w = Width (int)
      *                   h = Height (int)
      *                   c = Crop (bool)
-     *                   q = Quality (int)
      */
     protected $url_params = array();
     
@@ -56,44 +63,44 @@ class ImageFly
     /**
      * Constructorbot
      */
-    public function __construct()
+    public function __construct($params,$filepath)
     {
         // Prevent unnecessary warnings on servers that are set to display E_STRICT errors, these will damage the image data.
         error_reporting(error_reporting() & ~E_STRICT);
         
         // Set the config
-        $this->config = Kohana::$config->load('imagefly');
+        $this->config = Kohana::config('imagefly');
         
         // Try to create the cache directory if it does not exist
-        $this->_create_cache_dir();
-        
+        $this->_createCacheDir();
+
         // Parse and set the image modify params
-        $this->_set_params();
+		$this->_set_params($params, $filepath);
         
         // Set the source file modified timestamp
         $this->source_modified = filemtime($this->source_file);
         
         // Try to create the mimic directory structure if required
-        $this->_create_mimic_cache_dir();
+        $this->_createMimicCacheDir();
         
         // Set the cached filepath with filename
-        $this->cached_file = $this->cache_dir.$this->_encoded_filename();
+        $this->cached_file = $this->cache_dir.$this->_encodedFilename();
         
         // Create a modified cache file or dont...
-        if ( ! $this->_cached_exists() AND $this->_cached_required())
-        {
-            $this->_create_cached();
+        if ( ! $this->_cachedExists() AND $this->_cachedRequired())
+       {
+            $this->_createCached();
         }
         
         // Serve the image file
-        $this->_serve_file();
+        $this->_serveFile();
     }
     
     /**
      * Try to create the config cache dir if required
      * Set $cache_dir
      */
-    private function _create_cache_dir()
+    private function _createCacheDir()
     {
         if( ! file_exists($this->config['cache_dir']))
         {
@@ -115,9 +122,9 @@ class ImageFly
      * Try to create the mimic cache dir from the source path if required
      * Set $cache_dir
      */
-    private function _create_mimic_cache_dir()
+    private function _createMimicCacheDir()
     {
-        if ($this->config['mimic_source_dir'])
+        if ($this->config['mimic_sourcestructure'])
         {
             // Get the dir from the source file
             $mimic_dir = $this->config['cache_dir'].pathinfo($this->source_file, PATHINFO_DIRNAME);
@@ -145,48 +152,32 @@ class ImageFly
      * w = Width (int)
      * h = Height (int)
      * c = Crop (bool)
+	 * pc = Portrait Crop (crop from 30% top of the image, not center)
      */
-    private function _set_params()
+    private function _set_params($params,$filepath)
     {
         // Get values from request
-        $params = Request::current()->param('params');
-        $filepath = Request::current()->param('imagepath');
-        
-        // If enforcing params, ensure it's a match
-        if ($this->config['enforce_presets'] AND ! in_array($params, $this->config['presets']))
-            throw new HTTP_Exception_404('The requested URL :uri was not found on this server.',
-                                                    array(':uri' => Request::$current->uri()));
-        
+//       $params = Request::$instance->param('params');
+//       $filepath = Request::$instance->param('imagepath');
         $this->image = Image::factory($filepath);
         
         // The parameters are separated by hyphens
-        $raw_params = explode('-', $params);
+		$raw_params	= explode('-', $params);
         
         // Set default param values
         $this->url_params['w'] = NULL;
         $this->url_params['h'] = NULL;
         $this->url_params['c'] = FALSE;
-        $this->url_params['q'] = NULL;
+		$this->url_params['p'] = NULL;//portrait crop
         
         // Update param values from passed values
         foreach ($raw_params as $raw_param)
-        {
+		{
             $name = $raw_param[0];
             $value = substr($raw_param, 1, strlen($raw_param) - 1);
             if ($name == 'c')
             {
                 $this->url_params[$name] = TRUE;
-                
-                // When croping, we must have a width and height to pass to imagecreatetruecolor method
-                // Make width the height or vice versa if either is not passed
-                if (empty($this->url_params['w']))
-                {
-                    $this->url_params['w'] = $this->url_params['h'];
-                }
-                if (empty($this->url_params['h']))
-                {
-                    $this->url_params['h'] = $this->url_params['w'];
-                }
             }
             else
             {
@@ -194,18 +185,20 @@ class ImageFly
             }
         }
 
-		//Do not scale up images
-		if (!$this->config['scale_up'])
-		{
-			if ($this->url_params['w'] > $this->image->width) $this->url_params['w'] = $this->image->width;
-			if ($this->url_params['h'] > $this->image->height) $this->url_params['h'] = $this->image->height;
-		}
+        // Make width the height or vice versa if either is not passed
+        if (empty($this->url_params['w']))
+        {
+            $this->url_params['w'] = $this->url_params['h'];
+        }
+        if (empty($this->url_params['h']))
+        {
+            $this->url_params['h'] = $this->url_params['w'];
+        }
         
         // Must have at least a width or height
         if(empty($this->url_params['w']) AND empty($this->url_params['h']))
         {
-            throw new HTTP_Exception_404('The requested URL :uri was not found on this server.',
-                                                    array(':uri' => Request::$current->uri()));
+            throw new Kohana_Exception('Invalid parameters, you must specify a width and/or height');
         }
   
         // Set the url filepath
@@ -217,7 +210,7 @@ class ImageFly
      * 
      * @return boolean
      */
-    private function _cached_exists()
+    private function _cachedExists()
     {
         return file_exists($this->cached_file);
     }
@@ -227,9 +220,9 @@ class ImageFly
      * 
      * @return boolean
      */
-    private function _cached_required()
+    private function _cachedRequired()
     {
-        $image_info = getimagesize($this->source_file);
+        $image_info	= getimagesize($this->source_file);
         
         if (($this->url_params['w'] == $image_info[0]) AND ($this->url_params['h'] == $image_info[1]))
         {
@@ -245,7 +238,7 @@ class ImageFly
      * 
      * @return  string
      */
-    private function _encoded_filename()
+    private function _encodedFilename()
     {
         $ext = strtolower(pathinfo($this->source_file, PATHINFO_EXTENSION));
         $encode = md5($this->source_file.http_build_query($this->url_params));
@@ -255,11 +248,11 @@ class ImageFly
 
         return $encoded_name;
     }
-    
+
     /**
      * Creates a cached cropped/resized version of the file
      */
-    private function _create_cached()
+    private function _createCached()
     {
         if($this->url_params['c'])
         {
@@ -269,65 +262,74 @@ class ImageFly
             // Crop any overflow from the larger side
             $this->image->crop($this->url_params['w'], $this->url_params['h']);
         }
-        else
+        else if(!empty($this->url_params['p'])){
+            // Resize to highest width or height with overflow on the larger side
+            $this->image->resize($this->url_params['w'], $this->url_params['h'], Image::INVERSE);
+
+			// if image is portrait, crop it depense on interpolation
+			if($this->image->height > $this->image->width){
+				$interpolate = '0.'.$this->url_params['p'];
+				$offset_y = round(($this->image->height - $this->url_params['h'])*$interpolate);
+
+				$this->image->crop($this->url_params['w'], $this->url_params['h'],0,$offset_y);
+			}else{
+				// Crop any overflow from the larger side
+				$this->image->crop($this->url_params['w'], $this->url_params['h']);
+			}
+		}
+		else
         {
             // Just Resize
             $this->image->resize($this->url_params['w'], $this->url_params['h']);
         }
         
         // Save
-        if($this->url_params['q'])
-		{
-            //Save image with quality param
-            $this->image->save($this->cached_file, $this->url_params['q']);
-        }
-        else
-        {
-            //Save image with default quality
-            $this->image->save($this->cached_file);
-        }
+        $this->image->save($this->cached_file);
     }
-    
+
     /**
      * Create the image HTTP headers
      * 
      * @param  string     path to the file to server (either default or cached version)
      */
-    private function _create_headers($file_data)
-    {        
+    private function _createHeaders($file_data)
+    {
+        // Image info
+        $image_info	= getimagesize($file_data);
+        
         // Create the required header vars
         $last_modified = gmdate('D, d M Y H:i:s', filemtime($file_data)).' GMT';
-        $content_type = File::mime($file_data);
+        $content_type = $image_info['mime'];
         $content_length = filesize($file_data);
         $expires = gmdate('D, d M Y H:i:s', (time() + $this->config['cache_expire'])).' GMT';
         $max_age = 'max-age='.$this->config['cache_expire'].', public';
         
         // Some required headers
         header("Last-Modified: $last_modified");
-        header("Content-Type: $content_type");
-        header("Content-Length: $content_length");
+		header("Content-Type: $content_type");
+		header("Content-Length: $content_length");
 
-        // How long to hold in the browser cache
-        header("Expires: $expires");
+		// How long to hold in the browser cache
+		header("Expires: $expires");
 
-        /**
+		/**
          * Public in the Cache-Control lets proxies know that it is okay to
-         * cache this content. If this is being served over HTTPS, there may be
-         * sensitive content and therefore should probably not be cached by
-         * proxy servers.
+		 * cache this content. If this is being served over HTTPS, there may be
+		 * sensitive content and therefore should probably not be cached by
+		 * proxy servers.
          */
-        header("Cache-Control: $max_age");
+		header("Cache-Control: $max_age");
         
         // Set the 304 Not Modified if required
-        $this->_modified_headers($last_modified);
+		$this->_modifiedHeaders($last_modified);
         
         /**
          * The "Connection: close" header allows us to serve the file and let
-         * the browser finish processing the script so we can do extra work
-         * without making the user wait. This header must come last or the file
-         * size will not properly work for images in the browser's cache
+		 * the browser finish processing the script so we can do extra work
+		 * without making the user wait. This header must come last or the file
+		 * size will not properly work for images in the browser's cache
          */
-        header("Connection: close");
+		header("Connection: close");
     }
     
     /**
@@ -335,25 +337,25 @@ class ImageFly
      * 
      * @param  string  header formatted date
      */
-    private function _modified_headers($last_modified)
+    private function _modifiedHeaders($last_modified)
     {  
-        $modified_since = (isset($_SERVER['HTTP_IF_MODIFIED_SINCE']))
-            ? stripslashes($_SERVER['HTTP_IF_MODIFIED_SINCE'])
-            : FALSE;
+        $modified_since = (isset($_SERVER['HTTP_IF_MODIFIED_SINCE'])) ?
+			stripslashes($_SERVER['HTTP_IF_MODIFIED_SINCE']) :
+			FALSE;
 
-        if ( ! $modified_since OR $modified_since != $last_modified)
-            return;
+		if ( ! $modified_since OR $modified_since != $last_modified)
+			return;
 
-        // Nothing has changed since their last request - serve a 304 and exit
-        header('HTTP/1.1 304 Not Modified');
-        header('Connection: close');
-        exit();
+		// Nothing has changed since their last request - serve a 304 and exit
+		header('HTTP/1.1 304 Not Modified');
+		header('Connection: close');
+		exit();
     }
     
     /**
      * Decide which filesource we are using and serve
      */
-    private function _serve_file()
+    private function _serveFile()
     {
         // Set either the source or cache file as our datasource
         if ($this->serve_default)
@@ -377,25 +379,26 @@ class ImageFly
     private function _output_file($file_data)
     {
         // Create the headers
-        $this->_create_headers($file_data);
+        $this->_createHeaders($file_data);
         
         // Get the file data
         $data = file_get_contents($file_data);
 
-        // Send the image to the browser in bite-sized chunks
-        $chunk_size = 1024 * 8;
-        $fp = fopen('php://memory', 'r+b');
-
+		// Send the image to the browser in bite-sized chunks
+		$chunk_size	= 1024 * 8;
+		$fp	= fopen('php://memory', 'r+b');
+		
         // Process file data
         fwrite($fp, $data);
-        rewind($fp);
-        while ( ! feof($fp))
-        {
-            echo fread($fp, $chunk_size);
-            flush();
-        }
-        fclose($fp);
-
+		rewind($fp);
+		while ( ! feof($fp))
+		{
+			echo fread($fp, $chunk_size);
+			flush();
+		}
+		fclose($fp);
+		
+		return $data;
         exit();
     }
 }
