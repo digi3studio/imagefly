@@ -6,7 +6,7 @@
  * @uses      Image Module
  */
  
-Route::set('imagefly', 'imagefly/<params>/<imagepath>', array('imagepath' => '.*'))
+Route::set('imagefly', 'imagefly/<params>/<imagepath>.<ext>', array('imagepath' => '.*'))
     ->defaults(array(
         'controller' => 'imagefly',
     ));

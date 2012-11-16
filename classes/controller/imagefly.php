@@ -18,7 +18,8 @@ class Controller_ImageFly extends Controller
 
         new ImageFly(
 			Request::instance()->param('params'),
-			Request::instance()->param('imagepath')
+			Request::instance()->param('imagepath'),
+			Request::instance()->param('ext')
 		);
     }
 }
