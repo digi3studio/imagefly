@@ -12,6 +12,7 @@
  * add -p parameter for portrait crop. 
  * when cropping image from portrait to landscape. Head of the photo usually cropped.
  * by adjust the crop position from center (1/2) to 1/4 of the image will be prevent such problem.
+ * add -l parameter for landscape crop.
  */
  
 class ImageFly
@@ -105,7 +106,7 @@ class ImageFly
 		$this->cached_file = $this->cache_dir.$this->_encodedFilename();
 		
 		// Create a modified cache file or dont...
-		if ( ! $this->_cachedExists() AND $this->_cachedRequired())
+		if (! $this->_cachedExists() AND $this->_cachedRequired())
 	   {
 			$this->_createCached();
 		}
@@ -170,7 +171,8 @@ class ImageFly
 	 * w = Width (int)
 	 * h = Height (int)
 	 * c = Crop (bool)
-	 * pc = Portrait Crop (crop from 30% top of the image, not center)
+	 * p = Portrait Crop (crop from 30% top of the image, not center)
+	 * l = Landscape Crop (crop from 0% left of the image)
 	 */
 	private function _set_params($params)
 	{
@@ -186,6 +188,8 @@ class ImageFly
 		$this->url_params['h'] = NULL;
 		$this->url_params['c'] = FALSE;
 		$this->url_params['p'] = NULL;//portrait crop
+		$this->url_params['l'] = NULL;//landscrape crop
+		$this->url_params['r'] = NULL;//crop by rectangle
 		
 		// Update param values from passed values
 		foreach ($raw_params as $raw_param)
@@ -266,30 +270,110 @@ class ImageFly
 	/**
 	 * Creates a cached cropped/resized version of the file
 	 */
+	private function crop(Kohana_Image &$img, $width, $height){
+		// Resize to highest width or height with overflow on the larger side
+		$img->resize($width, $height, Image::INVERSE);
+		// Crop any overflow from the larger side
+		$img->crop($width, $height);
+	}
+
+	private function crop_portrait_adjustment(Kohana_Image &$img, $width, $height, $adjustment){
+		// Resize to highest width or height with overflow on the larger side
+		$img->resize($width, $height, Image::INVERSE);
+
+		// if image is portrait, crop it depense on interpolation
+		if($img->height > $img->width){
+			$interpolate = '0.'.$adjustment;
+			$offset_y = round(($img->height - $height)*$interpolate);
+
+			$this->image->crop($width, $height,0,$offset_y);
+		}else{
+			// Crop any overflow from the larger side
+			$this->image->crop($width, $height);
+		}
+	}
+
+	private function crop_landscape_adjustment(Kohana_Image &$img, $width, $height, $adjustment){
+		// Resize to highest width or height with overflow on the larger side
+		$img->resize($width, $height, Image::INVERSE);
+
+		// if image is portrait, crop it depense on interpolation
+		if($img->height < $img->width){
+			$interpolate = '0.'.$adjustment;
+			$offset_x = round(($img->width - $width)*$interpolate);
+
+			$this->image->crop($width, $height,$offset_x,0);
+		}else{
+			// Crop any overflow from the larger side
+			$this->image->crop($width, $height);
+		}
+	}
+
+	private function crop_rectangle(Kohana_Image &$img, $width, $height, $poi_x_percent, $poi_y_percent, $poi_distance_percent, $crop_adjust_x, $crop_adjust_y){
+		//the crop start with center point of interest and distance
+		$crop_x = round($img->width*$poi_x_percent);
+		$crop_y = round($img->height*$poi_y_percent);
+		$crop_size = round($img->width*$poi_distance_percent);
+
+		$img->crop($crop_size, $crop_size,$crop_x,$crop_y);
+
+		$img->resize($width, $height, Image::INVERSE);
+
+		//it's square, no need to crop
+		if($width==$height)return;
+
+		// if image is portrait, crop it depense on interpolation
+		if($height > $width){
+
+			$offset_x = round(($img->width*$crop_adjust_x)-($width*0.5));
+			//min limit
+			if($offset_x<0)$offset_x=0;
+			//max limit
+			$max_x = $img->width-$width;
+			if($offset_x>$max_x){
+				$offset_x = $max_x;
+			}
+			$img->crop($width, $height,$offset_x,0);
+		}else{
+			$offset_y = round(($img->height*$crop_adjust_y)-($height*0.5));
+			//min limit
+			if($offset_y<0)$offset_y=0;
+			//max limit
+			$max_y = $img->height-$height;
+			if($offset_y>$max_y){
+				$offset_y = $max_y;
+			}
+			$img->crop($width, $height,0,$offset_y);
+		}
+	}
+
 	private function _createCached()
 	{
 		if($this->url_params['c'])
 		{
-			// Resize to highest width or height with overflow on the larger side
-			$this->image->resize($this->url_params['w'], $this->url_params['h'], Image::INVERSE);
-			
-			// Crop any overflow from the larger side
-			$this->image->crop($this->url_params['w'], $this->url_params['h']);
+			$this->crop($this->image, $this->url_params['w'], $this->url_params['h']);
+		}else if(!empty($this->url_params['p']))
+		{
+			$this->crop_portrait_adjustment($this->image,$this->url_params['w'],$this->url_params['h'],$this->url_params['p']);
 		}
-		else if(!empty($this->url_params['p'])){
-			// Resize to highest width or height with overflow on the larger side
-			$this->image->resize($this->url_params['w'], $this->url_params['h'], Image::INVERSE);
+		else if(!empty($this->url_params['l'])){
+			$this->crop_landscape_adjustment($this->image,$this->url_params['w'],$this->url_params['h'],$this->url_params['l']);
+		}
+		else if(!empty($this->url_params['r'])){
+			$poi = explode('_',$this->url_params['r']);
+			$crop_adjust_x = isset($poi[3])?$poi[3]:'5';
+			$crop_adjust_y = isset($poi[4])?$poi[4]:'5';
 
-			// if image is portrait, crop it depense on interpolation
-			if($this->image->height > $this->image->width){
-				$interpolate = '0.'.$this->url_params['p'];
-				$offset_y = round(($this->image->height - $this->url_params['h'])*$interpolate);
-
-				$this->image->crop($this->url_params['w'], $this->url_params['h'],0,$offset_y);
-			}else{
-				// Crop any overflow from the larger side
-				$this->image->crop($this->url_params['w'], $this->url_params['h']);
-			}
+			$this->crop_rectangle(
+				$this->image,
+				$this->url_params['w'],
+				$this->url_params['h'],
+				'0.'.$poi[0],
+				'0.'.$poi[1],
+				'0.'.$poi[2],
+				'0.'.$crop_adjust_x,
+				'0.'.$crop_adjust_y
+			);
 		}
 		else
 		{
@@ -305,6 +389,7 @@ class ImageFly
 		}
 	}
 
+
 	/**
 	 * Create the image HTTP headers
 	 * 
@@ -318,7 +403,7 @@ class ImageFly
 		// Create the required header vars
 		$last_modified = gmdate('D, d M Y H:i:s', filemtime($file_data)).' GMT';
 		$content_type = $image_info['mime'];
-		$content_length = filesize($file_data)+53;
+		$content_length = filesize($file_data);
 		$expires = gmdate('D, d M Y H:i:s', (time() + $this->config['cache_expire'])).' GMT';
 		$max_age = 'max-age='.$this->config['cache_expire'].', public';
 		
