@@ -86,7 +86,8 @@ class ImageFly
 
 
 		// Set the config
-		$this->config = Kohana::config('imagefly');
+		$this->config = Kohana::$config->load('imagefly');
+//		$this->config = Kohana::config('imagefly');
 		
 		// Try to create the cache directory if it does not exist
 		$this->_createCacheDir();

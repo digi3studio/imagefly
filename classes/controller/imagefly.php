@@ -17,9 +17,9 @@ class Controller_ImageFly extends Controller
         $this->auto_render = FALSE;
 
         new ImageFly(
-			Request::instance()->param('params'),
-			Request::instance()->param('imagepath'),
-			Request::instance()->param('ext')
+			$this->request->param('params'),
+			$this->request->param('imagepath'),
+			$this->request->param('ext')
 		);
     }
 }
