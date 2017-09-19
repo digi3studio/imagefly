@@ -84,10 +84,14 @@ class ImageFly
 			$this->source_file = $filepath.'.png';
 		}
 
+		//gif is not resizing...
+		if ($ext === 'gif'){
+            $this->_output_file($filepath.'.gif');
+		    return;
+        }
 
 		// Set the config
 		$this->config = Kohana::$config->load('imagefly');
-//		$this->config = Kohana::config('imagefly');
 		
 		// Try to create the cache directory if it does not exist
 		$this->_createCacheDir();
